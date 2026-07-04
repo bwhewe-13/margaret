@@ -14,8 +14,10 @@ def main() -> int:
     from PyQt6.QtWidgets import QApplication
 
     from margaret.gui.start_page import StartPage
+    from margaret.gui.theme import apply_theme
 
     app = QApplication(sys.argv[:1])
+    apply_theme(app)
     window = StartPage()
     window.show()
     return app.exec()

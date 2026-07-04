@@ -15,11 +15,12 @@ from typing import Optional
 import numpy as np
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtGui import QDoubleValidator, QFont
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -85,15 +86,29 @@ class StartPage(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         title = QLabel(APP_NAME)
+        title.setObjectName("appTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 30px; font-weight: bold;")
+        # QSS has no letter-spacing, so widen the tracking on the font itself
+        # to give the (already uppercase) wordmark an instrument-panel feel.
+        font = title.font()
+        font.setPointSize(26)
+        font.setBold(True)
+        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 135)
+        title.setFont(font)
+
+        # A thin accent rule under the wordmark.
+        rule = QFrame()
+        rule.setObjectName("titleRule")
+        rule.setFixedHeight(2)
+        rule.setFixedWidth(220)
 
         subtitle = QLabel(APP_SUBTITLE)
+        subtitle.setObjectName("appSubtitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("font-size: 13px; color: gray;")
 
         layout.addWidget(title)
+        layout.addWidget(rule, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(subtitle)
         return header
 
@@ -110,12 +125,13 @@ class StartPage(QMainWindow):
         form.addRow("Dimension ordering", self.order_combo)
 
         self.load_button = QPushButton("Load flux...")
+        self.load_button.setObjectName("primaryButton")
         self.load_button.clicked.connect(self._on_load_clicked)
         form.addRow(self.load_button)
 
         self.info_label = QLabel("No flux loaded")
         self.info_label.setWordWrap(True)
-        self.info_label.setStyleSheet("color: gray;")
+        self.info_label.setProperty("role", "muted")
         form.addRow(self.info_label)
 
         return panel
@@ -198,7 +214,7 @@ class StartPage(QMainWindow):
     @staticmethod
     def _status_label(text: str) -> QLabel:
         label = QLabel(text)
-        label.setStyleSheet("color: gray;")
+        label.setProperty("role", "muted")
         return label
 
     # -- reactive UI -------------------------------------------------------- #

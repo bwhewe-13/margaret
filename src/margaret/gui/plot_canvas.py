@@ -13,6 +13,8 @@ from typing import Optional, Tuple
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
+from margaret.gui.theme import ACCENT
+
 
 class FluxCanvas(FigureCanvasQTAgg):
     """A Qt widget that draws a flux line plot."""
@@ -38,7 +40,7 @@ class FluxCanvas(FigureCanvasQTAgg):
     def draw_flux(self, x, y, xlabel: str, line_label: str, title: str,
                   ylim: Optional[Tuple[float, float]] = None) -> None:
         self.axes.clear()
-        self.axes.plot(x, y, marker=".", color="tab:blue", label=line_label)
+        self.axes.plot(x, y, marker=".", color=ACCENT, label=line_label)
         self.axes.set_xlabel(xlabel)
         self.axes.set_ylabel("Scalar flux")
         self.axes.set_title(title)
