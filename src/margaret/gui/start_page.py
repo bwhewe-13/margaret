@@ -15,8 +15,9 @@ from typing import Optional
 import numpy as np
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QDoubleValidator, QFont
+from PyQt6.QtGui import QDoubleValidator, QFont, QIntValidator
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -140,10 +141,33 @@ class StartPage(QMainWindow):
         panel = QGroupBox("View")
         form = QFormLayout(panel)
 
-        self.group_combo = QComboBox()
-        self.group_combo.setEnabled(False)
-        self.group_combo.currentIndexChanged.connect(self._redraw)
-        form.addRow("Energy group", self.group_combo)
+        # Group selection: type a group number or an energy level (rather than
+        # scrolling a long dropdown). `_group_index` is the resolved source of
+        # truth read by `_redraw`; -1 means "sum over all groups".
+        self._group_index = 0
+        self.group_mode = QComboBox()
+        self.group_mode.addItems(["Group #", "Energy"])
+        self.group_mode.setEnabled(False)
+        self.group_entry = QLineEdit()
+        self.group_entry.setValidator(QIntValidator())
+        self.group_entry.setMaximumWidth(90)
+        self.group_entry.setEnabled(False)
+        self.group_sum_check = QCheckBox("Sum all")
+        self.group_sum_check.setEnabled(False)
+        group_row = QHBoxLayout()
+        group_row.addWidget(self.group_mode)
+        group_row.addWidget(self.group_entry, stretch=1)
+        group_row.addWidget(self.group_sum_check)
+        group_container = QWidget()
+        group_container.setLayout(group_row)
+        form.addRow("Energy group", group_container)
+        self.group_readout = self._status_label("")
+        form.addRow("", self.group_readout)
+
+        self.group_mode.currentTextChanged.connect(self._on_group_mode_changed)
+        self.group_entry.editingFinished.connect(self._resolve_group)
+        self.group_entry.returnPressed.connect(self._resolve_group)
+        self.group_sum_check.toggled.connect(self._resolve_group)
 
         self.time_slider = QSlider(Qt.Orientation.Horizontal)
         self.time_slider.setMinimum(0)
@@ -244,10 +268,17 @@ class StartPage(QMainWindow):
         self.info_label.setText("No flux loaded")
         self.x_status.setText("not set")
         self.t_status.setText("not set")
-        self.group_combo.blockSignals(True)
-        self.group_combo.clear()
-        self.group_combo.setEnabled(False)
-        self.group_combo.blockSignals(False)
+        self._group_index = 0
+        for w in (self.group_mode, self.group_entry, self.group_sum_check):
+            w.blockSignals(True)
+        self.group_entry.clear()
+        self.group_sum_check.setChecked(False)
+        self.group_mode.setEnabled(False)
+        self.group_entry.setEnabled(False)
+        self.group_sum_check.setEnabled(False)
+        self.group_readout.setText("")
+        for w in (self.group_mode, self.group_entry, self.group_sum_check):
+            w.blockSignals(False)
         self.time_slider.blockSignals(True)
         self.time_slider.setMaximum(0)
         self.time_slider.setEnabled(False)
@@ -327,16 +358,19 @@ class StartPage(QMainWindow):
         )
 
     def _populate_selectors(self) -> None:
-        self._refresh_group_labels()
+        self._refresh_group_input()
 
         if self.model.has_time:
             n_times = self.model.axis_size("T")
+            # Open on the first real step (index 1); index 0 is the reserved
+            # t=0 initial condition (often zero flux) and stays reachable.
+            default_t = 1 if n_times > 1 else 0
             self.time_slider.blockSignals(True)
             self.time_slider.setMaximum(max(n_times - 1, 0))
-            self.time_slider.setValue(0)
+            self.time_slider.setValue(default_t)
             self.time_slider.setEnabled(True)
             self.time_slider.blockSignals(False)
-            self.time_value_label.setText(self.model.time_label(0))
+            self.time_value_label.setText(self.model.time_label(default_t))
 
     # -- energy / coordinate grids ----------------------------------------- #
     def _load_energy_grid(self) -> None:
@@ -347,7 +381,7 @@ class StartPage(QMainWindow):
         self.energy_status.setText(
             f"{grid.size} pts, {grid[0]:.3g}-{grid[-1]:.3g}"
         )
-        self._refresh_group_labels()
+        self._refresh_group_input()
         self._redraw()
 
     def _generate_spatial_grid(self) -> None:
@@ -381,9 +415,18 @@ class StartPage(QMainWindow):
                 f"Enter numeric start and stop values for the {name} grid.",
             )
             return
-        grid = np.linspace(a, b, n)
+        if axis == "T":
+            # Reserve index 0 as the t=0 initial step; spread start/stop over
+            # the remaining real steps (indices 1..n-1).
+            grid = self.model.time_grid_from_range(a, b)
+            status.setText(
+                f"{n} pts, step 0 = t0 (initial); "
+                f"{a:.3g}-{b:.3g} over steps 1-{n - 1} (generated)"
+            )
+        else:
+            grid = np.linspace(a, b, n)
+            status.setText(f"{n} pts, {a:.3g}-{b:.3g} (generated)")
         self.model.set_grid(axis, grid)
-        status.setText(f"{n} pts, {a:.3g}-{b:.3g} (generated)")
         self._redraw()
 
     def _set_loaded_grid(self, axis: str, status: QLabel, name: str) -> None:
@@ -422,21 +465,103 @@ class StartPage(QMainWindow):
         return grid
 
     # -- labels / plotting -------------------------------------------------- #
-    def _refresh_group_labels(self) -> None:
+    def _refresh_group_input(self) -> None:
+        """Enable the group controls for the loaded flux and re-resolve.
+
+        Called on load and whenever the energy grid changes (so an energy entry
+        can be re-mapped once a grid is available).
+        """
         if not self.model.is_loaded:
             return
-        current = self.group_combo.currentData()
-        self.group_combo.blockSignals(True)
-        self.group_combo.clear()
-        for g in range(self.model.group_count()):
-            self.group_combo.addItem(self.model.group_label(g), g)
-        self.group_combo.addItem("Sum over all groups", -1)
-        if current is not None:
-            i = self.group_combo.findData(current)
-            if i >= 0:
-                self.group_combo.setCurrentIndex(i)
-        self.group_combo.setEnabled(True)
-        self.group_combo.blockSignals(False)
+        n = self.model.group_count()
+        self._group_index = min(max(self._group_index, 0), n - 1)
+        self.group_mode.setEnabled(True)
+        self.group_sum_check.setEnabled(True)
+        self.group_entry.setEnabled(not self.group_sum_check.isChecked())
+        if not self.group_entry.text().strip():
+            self.group_entry.setText(str(self._group_index))
+        self._resolve_group()
+
+    def _on_group_mode_changed(self, mode: str) -> None:
+        # Group numbers are integers; energies are arbitrary floats.
+        validator = QIntValidator() if mode == "Group #" else QDoubleValidator()
+        self.group_entry.setValidator(validator)
+        self._resolve_group()
+
+    def _resolve_group(self) -> None:
+        """Read the group input, resolve it to a group index, and redraw.
+
+        Sets ``self._group_index`` (``-1`` for the sum) and reports the outcome
+        in the readout. Invalid or out-of-range input leaves the current group
+        untouched and skips the redraw.
+        """
+        if not self.model.is_loaded:
+            return
+        if self.group_sum_check.isChecked():
+            self.group_mode.setEnabled(False)
+            self.group_entry.setEnabled(False)
+            self._group_index = -1
+            self.group_readout.setProperty("role", "muted")
+            self._restyle(self.group_readout)
+            self.group_readout.setText("Sum over all groups")
+            self._redraw()
+            return
+
+        self.group_mode.setEnabled(True)
+        self.group_entry.setEnabled(True)
+        n = self.model.group_count()
+        text = self.group_entry.text().strip()
+        role, message = "muted", ""
+        if not text:
+            self.group_readout.setProperty("role", "muted")
+            self._restyle(self.group_readout)
+            self.group_readout.setText("Enter a value")
+            return
+
+        if self.group_mode.currentText() == "Energy":
+            try:
+                energy = float(text)
+            except ValueError:
+                self._warn_readout("Invalid energy")
+                return
+            result = self.model.group_from_energy(energy)
+            if result is None:
+                self._warn_readout("Load an energy grid to enter an energy")
+                return
+            g, exact = result
+            if not exact:
+                role = "warn"
+                message = f"-> {self.model.group_label(g)}  (nearest to {energy:.3g})"
+            else:
+                message = f"-> {self.model.group_label(g)}"
+        else:  # Group #
+            try:
+                g = int(round(float(text)))
+            except ValueError:
+                self._warn_readout("Invalid group number")
+                return
+            if not 0 <= g < n:
+                self._warn_readout(f"Group out of range 0-{n - 1}")
+                return
+            message = f"-> {self.model.group_label(g)}"
+
+        self._group_index = g
+        self.group_readout.setProperty("role", role)
+        self._restyle(self.group_readout)
+        self.group_readout.setText(message)
+        self._redraw()
+
+    def _warn_readout(self, message: str) -> None:
+        """Show a warning in the group readout without changing the group."""
+        self.group_readout.setProperty("role", "warn")
+        self._restyle(self.group_readout)
+        self.group_readout.setText(message)
+
+    @staticmethod
+    def _restyle(widget) -> None:
+        """Re-apply the stylesheet so a changed ``role`` property takes effect."""
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
 
     def _on_time_changed(self, value: int) -> None:
         self.time_value_label.setText(self.model.time_label(value))
@@ -446,7 +571,7 @@ class StartPage(QMainWindow):
         if not self.model.is_loaded:
             return
         t = self.time_slider.value() if self.model.has_time else None
-        group = self.group_combo.currentData()
+        group = self._group_index
         x, y, xlabel, line_label = self.model.slice(group, t)
 
         title = self.model.name or "Neutron flux"

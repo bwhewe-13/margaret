@@ -20,6 +20,7 @@ SURFACE = "#ffffff"         # cards, inputs, buttons
 BORDER = "#d5d9e0"
 TEXT = "#1c2330"
 MUTED = "#6b7280"           # secondary labels (subtitle, status, hints)
+WARN = "#b45309"            # amber; soft warnings (e.g. snapped-to-nearest hints)
 SELECTION_TINT = "#e4efff"  # list/selection highlight
 
 # -- stylesheet ------------------------------------------------------------ #
@@ -153,6 +154,9 @@ QToolBar {{
 /* Header wordmark + shared muted-label role. */
 QLabel[role="muted"] {{
     color: {MUTED};
+}}
+QLabel[role="warn"] {{
+    color: {WARN};
 }}
 #appTitle {{
     color: {ACCENT};

@@ -91,6 +91,20 @@ class FluxModel:
         elif axis == "T":
             self.t_grid = grid
 
+    def time_grid_from_range(self, start: float, stop: float) -> np.ndarray:
+        """Time grid that reserves index 0 as the t=0 initial step.
+
+        The flux's first time step (index 0) is the pre-transient initial
+        condition (commonly zero flux) and is fixed at t=0; ``start``/``stop``
+        describe the remaining real steps, spread uniformly over indices
+        1..T-1. Edge cases: T=1 -> ``[0.0]``; T=2 -> ``[0.0, start]``.
+        """
+        n = self.axis_size("T")            # T length of the loaded cube
+        grid = np.zeros(n)                 # index 0 -> t = 0 (initial)
+        if n > 1:
+            grid[1:] = np.linspace(start, stop, n - 1)
+        return grid
+
     # -- labels ------------------------------------------------------------- #
     def group_count(self) -> int:
         return self.flux.shape[1]
@@ -104,10 +118,37 @@ class FluxModel:
             return f"Group {g} (E={e[g]:.3g})"
         return f"Group {g}"
 
+    def group_from_energy(self, energy: float) -> Optional[Tuple[int, bool]]:
+        """Resolve ``energy`` to ``(group_index, exact)`` using the energy grid.
+
+        G+1 entries are band boundaries -> the containing band (clamped to the
+        ends; handles ascending or descending grids); ``exact`` is False only
+        when the energy falls outside the grid's range (so it was clamped). G
+        entries are band centers -> the nearest center; ``exact`` is False when
+        the energy is not that center. Returns ``None`` when no usable energy
+        grid is loaded.
+        """
+        e = self.energy_grid
+        if e is None or self.flux is None:
+            return None
+        n = self.group_count()
+        if e.size == n + 1:                      # boundaries -> containing band
+            lo, hi = min(e[0], e[-1]), max(e[0], e[-1])
+            asc = e[-1] >= e[0]
+            arr = e if asc else e[::-1]
+            idx = int(np.clip(np.searchsorted(arr, energy) - 1, 0, n - 1))
+            g = idx if asc else (n - 1 - idx)
+            return g, bool(lo <= energy <= hi)
+        if e.size == n:                          # centers -> nearest
+            g = int(np.argmin(np.abs(e - energy)))
+            return g, bool(np.isclose(e[g], energy))
+        return None
+
     def time_label(self, t: int) -> str:
+        suffix = " (initial)" if t == 0 else ""
         if self.t_grid is not None and t < self.t_grid.size:
-            return f"t = {self.t_grid[t]:.3g}"
-        return f"t = {t}"
+            return f"t = {self.t_grid[t]:.3g}{suffix}"
+        return f"t = {t}{suffix}"
 
     # -- reductions for plotting -------------------------------------------- #
     def slice(self, group, t):

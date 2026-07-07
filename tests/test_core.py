@@ -94,6 +94,70 @@ def test_group_and_time_labels():
     assert m.time_label(1) == "t = 1"
 
 
+def _group_model(n_groups=3):
+    m = FluxModel()
+    m.axes = ("I", "G")
+    m.set_flux(np.zeros((5, n_groups)), "f")
+    return m
+
+
+def test_group_from_energy_boundaries():
+    m = _group_model(3)
+    m.energy_grid = np.array([1.0, 2.0, 5.0, 10.0])  # G+1 ascending boundaries
+    assert [m.group_from_energy(v) for v in (1.5, 3.0, 7.0)] == [
+        (0, True), (1, True), (2, True)
+    ]
+    assert m.group_from_energy(0.1) == (0, False)   # clamped low -> warn
+    assert m.group_from_energy(99.0) == (2, False)  # clamped high -> warn
+
+
+def test_group_from_energy_descending_boundaries():
+    m = _group_model(3)
+    m.energy_grid = np.array([10.0, 5.0, 2.0, 1.0])  # G+1 descending boundaries
+    assert m.group_from_energy(7.0) == (0, True)
+    assert m.group_from_energy(3.0) == (1, True)
+    assert m.group_from_energy(1.5) == (2, True)
+
+
+def test_group_from_energy_centers():
+    m = _group_model(3)
+    m.energy_grid = np.array([1.0, 2.0, 3.0])  # G center energies
+    assert m.group_from_energy(2.0) == (1, True)    # exact center
+    assert m.group_from_energy(2.4) == (1, False)   # snapped -> warn
+    assert m.group_from_energy(2.6) == (2, False)
+
+
+def test_group_from_energy_no_grid_returns_none():
+    assert _group_model(3).group_from_energy(2.0) is None
+
+
+def test_time_grid_reserves_initial_step():
+    m = FluxModel()
+    m.axes = ("I", "G", "T")
+    m.set_flux(np.zeros((4, 3, 5)), "f")  # T = 5
+    grid = m.time_grid_from_range(2.0, 8.0)
+    assert grid.shape == (5,)
+    assert grid[0] == 0.0  # index 0 reserved as the t=0 initial step
+    assert np.allclose(grid[1:], [2, 4, 6, 8])
+
+
+def test_time_grid_edge_cases():
+    m = FluxModel()
+    m.axes = ("I", "G", "T")
+    m.set_flux(np.zeros((4, 3, 1)), "f")  # T = 1: only the initial step
+    assert np.array_equal(m.time_grid_from_range(2.0, 8.0), [0.0])
+    m.set_flux(np.zeros((4, 3, 2)), "f")  # T = 2: initial + one real step
+    assert np.array_equal(m.time_grid_from_range(2.0, 8.0), [0.0, 2.0])
+
+
+def test_time_label_marks_initial_step():
+    m, _ = _loaded_scalar_model()
+    m.t_grid = np.array([0.0, 2.0, 4.0])
+    assert m.time_label(0) == "t = 0 (initial)"
+    m.t_grid = None
+    assert m.time_label(0) == "t = 0 (initial)"
+
+
 def test_constant_ylim_spans_all_time():
     cube = np.empty((20, 3, 4))
     for t in range(4):
