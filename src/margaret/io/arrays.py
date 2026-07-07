@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import zipfile
-from typing import List, NamedTuple, Optional
+from typing import List, Mapping, NamedTuple, Optional
 
 import numpy as np
 from numpy.lib import format as npy_format
@@ -81,6 +81,7 @@ def _h5_infos(path: str) -> List[ArrayInfo]:
     h5py = _import_h5py()
     infos: List[ArrayInfo] = []
     with h5py.File(path, "r") as handle:
+
         def _collect(name, obj):
             if isinstance(obj, h5py.Dataset):
                 infos.append(ArrayInfo(name, tuple(obj.shape), str(obj.dtype)))
@@ -156,3 +157,49 @@ def _load_hdf5(path: str, key: Optional[str] = None) -> np.ndarray:
         if not found:
             raise ValueError(f"{os.path.basename(path)} has no datasets")
         return found[0]
+
+
+# --------------------------------------------------------------------------- #
+# Saving: named arrays -> file on disk (inverse of load_array).
+# --------------------------------------------------------------------------- #
+def save_arrays(
+    path: str, arrays: Mapping[str, np.ndarray], fmt: Optional[str] = None
+) -> List[str]:
+    """Write named ``arrays`` to disk as a container or a series of ``.npy`` files.
+
+    ``fmt`` is ``"npz"``, ``"h5"``, or ``"npy"``. When ``None`` it is inferred
+    from ``path``'s extension (``.npz`` -> npz, ``.h5``/``.hdf5`` -> h5); anything
+    else defaults to ``"npy"``, in which case ``path`` is treated as a directory
+    and one ``<name>.npy`` file is written per array. For ``npz``/``h5`` all the
+    arrays go into the single file at ``path``. Returns the paths written.
+    """
+    fmt = (fmt or _infer_save_format(path)).lower()
+    if fmt == "npz":
+        target = path if path.lower().endswith(".npz") else path + ".npz"
+        np.savez(target, **arrays)
+        return [target]
+    if fmt in ("h5", "hdf5"):
+        h5py = _import_h5py()
+        target = path if path.lower().endswith((".h5", ".hdf5")) else path + ".h5"
+        with h5py.File(target, "w") as handle:
+            for name, array in arrays.items():
+                handle.create_dataset(name, data=np.asarray(array))
+        return [target]
+    if fmt == "npy":
+        os.makedirs(path, exist_ok=True)
+        written = []
+        for name, array in arrays.items():
+            dest = os.path.join(path, f"{name}.npy")
+            np.save(dest, np.asarray(array))
+            written.append(dest)
+        return written
+    raise ValueError(f"Unsupported save format: {fmt!r}")
+
+
+def _infer_save_format(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".npz":
+        return "npz"
+    if ext in (".h5", ".hdf5"):
+        return "h5"
+    return "npy"

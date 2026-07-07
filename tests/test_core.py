@@ -3,11 +3,13 @@
 These import no PyQt6 and need no display.
 """
 
+import os
+
 import numpy as np
 import pytest
 
 from margaret.core.flux_model import FluxModel
-from margaret.io.arrays import list_arrays, load_array
+from margaret.io.arrays import list_arrays, load_array, save_arrays
 
 
 # --------------------------------------------------------------------------- #
@@ -241,3 +243,31 @@ def test_load_csv_and_non_container(tmp_path):
         load_array(str(path)), np.array([[1.0, 2, 3], [4, 5, 6]])
     )
     assert list_arrays(str(path)) is None  # csv is not a container
+
+
+# --------------------------------------------------------------------------- #
+# io.arrays.save_arrays
+# --------------------------------------------------------------------------- #
+def test_save_arrays_npz_roundtrip(tmp_path):
+    flux = np.arange(12.0).reshape(3, 4)
+    grid = np.arange(5.0)
+    written = save_arrays(str(tmp_path / "out.npz"), {"flux": flux, "energy": grid})
+    assert written == [str(tmp_path / "out.npz")]
+    assert {i.name for i in list_arrays(written[0])} == {"flux", "energy"}
+    np.testing.assert_array_equal(load_array(written[0], key="flux"), flux)
+    np.testing.assert_array_equal(load_array(written[0], key="energy"), grid)
+
+
+def test_save_arrays_npy_series(tmp_path):
+    flux = np.arange(6.0).reshape(2, 3)
+    grid = np.arange(4.0)
+    out_dir = tmp_path / "series"
+    written = save_arrays(str(out_dir), {"flux": flux, "energy": grid}, fmt="npy")
+    assert sorted(os.path.basename(p) for p in written) == ["energy.npy", "flux.npy"]
+    np.testing.assert_array_equal(load_array(str(out_dir / "flux.npy")), flux)
+
+
+def test_save_arrays_format_inference_defaults_to_npy_dir(tmp_path):
+    out = tmp_path / "no_ext"
+    written = save_arrays(str(out), {"flux": np.zeros(3)})
+    assert written == [str(out / "flux.npy")]
