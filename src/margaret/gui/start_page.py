@@ -45,6 +45,7 @@ from margaret.constants import (
 from margaret.core.flux_model import FluxModel
 from margaret.gui.array_picker import ArrayPickerDialog
 from margaret.gui.plot_canvas import FluxCanvas
+from margaret.gui.spectrum_window import SpectrumWindow
 from margaret.io.arrays import list_arrays, load_array
 
 
@@ -75,6 +76,11 @@ class StartPage(QMainWindow):
         root.addWidget(self._build_grid_controls())
 
         self.canvas = FluxCanvas(self)
+        # Click-to-spectrum: armed by `pick_check`, handled in `_on_plot_click`.
+        # `_spectrum_window` is a single reusable pop-out (created lazily); the
+        # reference also keeps it alive against garbage collection.
+        self._spectrum_window: Optional[SpectrumWindow] = None
+        self.canvas.mpl_connect("button_press_event", self._on_plot_click)
         root.addWidget(NavigationToolbar2QT(self.canvas, self))
         root.addWidget(self.canvas, stretch=1)
 
@@ -182,6 +188,11 @@ class StartPage(QMainWindow):
         self.time_row.setLayout(slider_row)
         self.time_form_label = QLabel("Time step")
         form.addRow(self.time_form_label, self.time_row)
+
+        # When armed, a left-click on the spatial plot pops out the energy
+        # spectrum at that cell (see `_on_plot_click`).
+        self.pick_check = QCheckBox("Pick spectrum (click a point on the plot)")
+        form.addRow("", self.pick_check)
 
         return panel
 
@@ -582,3 +593,39 @@ class StartPage(QMainWindow):
             ylim = self.model.constant_ylim(group)
 
         self.canvas.draw_flux(x, y, xlabel, line_label, title, ylim=ylim)
+
+    def _on_plot_click(self, event) -> None:
+        """Pop out the energy spectrum at the clicked spatial cell.
+
+        Only fires while "Pick spectrum" is armed, so it never competes with the
+        toolbar's pan/zoom clicks. Reuses a single `SpectrumWindow`, redrawing it
+        for each new point.
+        """
+        if not self.pick_check.isChecked() or not self.model.is_loaded:
+            return
+        if event.inaxes is not self.canvas.axes or event.xdata is None:
+            return
+
+        # Map the click's x position back to a spatial cell index.
+        n_cells = self.model.axis_size("I")
+        x_grid = self.model.x_grid
+        if x_grid is not None and x_grid.size == n_cells:
+            ix = int(np.argmin(np.abs(x_grid - event.xdata)))
+        else:
+            ix = int(round(event.xdata))
+        if not (0 <= ix < n_cells):
+            return
+
+        t = self.time_slider.value() if self.model.has_time else None
+        x, y, xlabel, line_label = self.model.spectrum(ix, t)
+        title = f"Spectrum at {line_label}"
+        if self.model.has_time:
+            title += f"  ({self.model.time_label(t)})"
+
+        if self._spectrum_window is None:
+            self._spectrum_window = SpectrumWindow(self)
+        self._spectrum_window.show_spectrum(x, y, xlabel, line_label, title)
+        self._spectrum_window.show()
+        self._spectrum_window.raise_()
+        self._spectrum_window.activateWindow()
+        self.statusBar().showMessage(f"Spectrum at {line_label}")

@@ -81,6 +81,47 @@ def test_slice_uses_position_grid_when_sized():
     assert xlabel2 == "Spatial cell (I)"
 
 
+# --------------------------------------------------------------------------- #
+# FluxModel.spectrum
+# --------------------------------------------------------------------------- #
+def test_spectrum_static_returns_energy_series():
+    m, base = _loaded_scalar_model()  # (40, 4)
+    x, y, xlabel, label = m.spectrum(3, None)
+    assert np.array_equal(y, base[3, :])          # energy series at cell 3
+    assert xlabel == "Energy group (G)"           # no energy grid loaded
+    assert np.array_equal(x, np.arange(4))
+    assert label == "Spatial cell 3"
+
+
+def test_spectrum_time_dependent_selects_step():
+    cube = np.arange(20 * 4 * 5, dtype=float).reshape(20, 4, 5)  # (I, G, T)
+    m = FluxModel()
+    m.axes = ("I", "G", "T")
+    m.set_flux(cube, "f")
+    _, y, _, _ = m.spectrum(2, 3)
+    assert np.array_equal(y, cube[2, :, 3])
+
+
+def test_spectrum_energy_axis_from_grid():
+    m, _ = _loaded_scalar_model()  # G = 4
+    # Group-center energies (size G) are used as-is.
+    centers = np.array([1.0, 2.0, 4.0, 8.0])
+    m.energy_grid = centers
+    x, _, xlabel, _ = m.spectrum(0, None)
+    assert xlabel == "Energy" and np.array_equal(x, centers)
+    # Group boundaries (size G+1) collapse to band midpoints.
+    m.energy_grid = np.array([0.0, 2.0, 4.0, 6.0, 8.0])
+    x2, _, xlabel2, _ = m.spectrum(0, None)
+    assert xlabel2 == "Energy" and np.array_equal(x2, np.array([1.0, 3.0, 5.0, 7.0]))
+
+
+def test_spectrum_uses_position_label_when_grid_sized():
+    m, _ = _loaded_scalar_model()  # I = 40
+    m.set_grid("I", np.linspace(0, 10, 40))
+    _, _, _, label = m.spectrum(0, None)
+    assert label == "Position 0"
+
+
 def test_group_and_time_labels():
     m, _ = _loaded_scalar_model()  # G = 4
     assert m.group_label(1) == "Group 1"

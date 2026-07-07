@@ -176,6 +176,36 @@ class FluxModel:
             x, xlabel = np.arange(n_cells), "Spatial cell (I)"
         return x, y, xlabel, line_label
 
+    def spectrum(self, ix: int, t):
+        """Reduce the cube to a 1-D energy spectrum at a single spatial cell.
+
+        The inverse of :meth:`slice`: fix the spatial cell ``ix`` (and time step
+        ``t``, ignored for non-time-dependent flux) and keep the energy axis, so
+        ``y`` is flux vs. energy group. ``x`` is the energy grid when one is
+        loaded (band centers, or midpoints of ``G+1`` boundaries), otherwise the
+        group index. Returns ``(x, y, xlabel, line_label)``.
+        """
+        flux = self.flux
+        if self.has_time:
+            flux = flux[:, :, t]
+
+        y = flux[ix, :]
+
+        n = self.group_count()
+        e = self.energy_grid
+        if e is not None and e.size == n:            # group-center energies
+            x, xlabel = e, "Energy"
+        elif e is not None and e.size == n + 1:      # group boundaries -> centers
+            x, xlabel = (e[:-1] + e[1:]) / 2, "Energy"
+        else:
+            x, xlabel = np.arange(n), "Energy group (G)"
+
+        if self.x_grid is not None and self.x_grid.size == flux.shape[0]:
+            line_label = f"Position {self.x_grid[ix]:.3g}"
+        else:
+            line_label = f"Spatial cell {ix}"
+        return x, y, xlabel, line_label
+
     def constant_ylim(self, group) -> Tuple[float, float]:
         """Y-range over *all* time steps for ``group`` (so the slider can't rescale)."""
         cube = self.flux  # canonical (I, G, T)
