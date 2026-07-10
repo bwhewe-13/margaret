@@ -16,6 +16,24 @@ A PyQt6 application for loading and visualizing neutron flux data.
   across time).
 - Embedded matplotlib canvas with pan/zoom/save.
 
+## Download
+
+Prebuilt executables for Windows, macOS, and Linux are attached to each
+[GitHub Release](https://github.com/bwhewe-13/margaret/releases) (no Python
+install needed). Releases are built automatically when a `v*` tag is pushed;
+bump `version` in `pyproject.toml` to match when tagging.
+
+- **Windows**: unzip and run `margaret.exe`. SmartScreen may warn because the
+  exe is unsigned — click "More info" → "Run anyway".
+- **macOS**: unzip and open `margaret.app`. The app is unsigned, so Gatekeeper
+  blocks the first launch — right-click → Open, or run
+  `xattr -dr com.apple.quarantine margaret.app`. Pick the `arm64` zip for
+  Apple Silicon or `x64` for Intel.
+- **Linux**: untar and run `./margaret`.
+
+The single-file executables self-extract on launch, so the first start takes a
+few seconds.
+
 ## Install
 
 ```bash

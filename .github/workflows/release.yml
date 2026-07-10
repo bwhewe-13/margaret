@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Qt system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1
+      - name: Install package
+        run: pip install -e .[dev]
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-13
+            target: macos-x64
+          - os: ubuntu-22.04
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Qt system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1
+      - name: Install package and PyInstaller
+        run: pip install . pyinstaller
+      - name: Build executable
+        run: pyinstaller --noconfirm --onefile --windowed --name margaret --paths src --exclude-module PySide6 --exclude-module PySide2 --exclude-module PyQt5 packaging/launcher.py
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/margaret.exe -DestinationPath "margaret-${{ github.ref_name }}-${{ matrix.target }}.zip"
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/margaret.app "margaret-${{ github.ref_name }}-${{ matrix.target }}.zip"
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf "margaret-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" -C dist margaret
+      - uses: actions/upload-artifact@v4
+        with:
+          name: margaret-${{ matrix.target }}
+          path: margaret-${{ github.ref_name }}-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
