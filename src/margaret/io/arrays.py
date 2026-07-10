@@ -60,6 +60,14 @@ def list_arrays(path: str) -> Optional[List[ArrayInfo]]:
     return None
 
 
+# Public per-version header readers; format 3.0 (non-latin1 array names) has no
+# public reader, so such entries fall back to the unreadable-header path below.
+_NPY_HEADER_READERS = {
+    (1, 0): npy_format.read_array_header_1_0,
+    (2, 0): npy_format.read_array_header_2_0,
+}
+
+
 def _npz_infos(path: str) -> List[ArrayInfo]:
     infos: List[ArrayInfo] = []
     with zipfile.ZipFile(path) as archive:
@@ -69,7 +77,7 @@ def _npz_infos(path: str) -> List[ArrayInfo]:
             with archive.open(entry) as handle:
                 try:
                     version = npy_format.read_magic(handle)
-                    shape, _, dtype = npy_format._read_array_header(handle, version)
+                    shape, _, dtype = _NPY_HEADER_READERS[version](handle)
                     shape, dtype = tuple(shape), str(dtype)
                 except Exception:  # unreadable header - still offer the name
                     shape, dtype = (), "?"
